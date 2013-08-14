@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebRTC demo</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script type="text/javascript" src="/js/easyrtc.js"></script>
+    <script type="text/javascript" src="/js/underscore.js"></script>
+    <script type="text/javascript" src="/js/zepto.js"></script>
+    <link rel="stylesheet" href="/css/custom.css"></script>
+</head>
+<body onload="initMedia()">
+	<div class="centered" style="width: 1200px; position: relative;">
+		<div style="width: 900px; float: left;">
+			<h1 style="">
+				WebRTC demonstration
+			</h1>
+			<p>
+				<label for="peerName">Input your name:</label>
+				<input type="text" id="peerName" />
+				<input type="button" id="btnConnect" value="Connect" onclick="connect();" />
+				<input type="button" id="btnDisconnect" value="Disconnect" onclick="disconnect();" style="display:none;" />
+			</p>
+			<p id='share' style='display:none'>
+				<span>Share this link to join: <a id='shareLink' target='_blank' href='/mydemo/index.html?id='>&nbsp;</a></span>
+			</p>
+			<p style="display:none;">
+				<input type="checkbox" id="shareVideo" checked="true" />
+				<label for="shareVideo">Share video</label>
+				<input type="checkbox" id="shareAudio" checked="true" />
+				<label for="shareAudio">Share audio</label>
+			</p>
+			<div style="margin-top: 20px;">
+				<div id="peerBox" style="display:none">
+					<h4>
+						List of peers:
+					</h4>
+					<ul id="peerList">
+						<li>Not connected</li>
+					</ul>
+				</div>
+				<div id="chatBox" style="display:none">
+					<p class="controls">
+						Type your message:
+						<input id="message" type="text" width="200px;" /> <button id="btnPostMessage" onclick="sendMessage()">Send</button>
+					</p>
+					<hr/>
+					<div id="chat">
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="videos">
+			<div class="videoBox">
+				<video autoplay="autoplay" class="easyRTCMirror" id="selfVideo" muted="muted" volume="0" ></video>
+			</div>
+			<div class="others">
+			</div>
+		</div>
+		<div class="clear">&nbsp;</div>
+	</div>
+</body>
+<script type="text/javascript">
+	easyRTC.debugPrinter = function(message) {
+		//console.log(message);
+	}
+	
+	function initMedia() {
+		easyRTC.initMediaSource(
+			function() {
+				console.log('Media source initialized');
+				setUpVideoObject();
+				console.log('Successfully got local media stream');
+			}, 
+			function() {
+				console.log('Failed to initialize media source');
+			});
+	}
+	function setUpVideoObject() {
+		var video = document.getElementById("selfVideo");
+		easyRTC.setVideoObjectSrc(video, easyRTC.getLocalStream());
+		video.muted = true;
+		haveSelfVideo = true;
+	}
+	
+	
+	
+	function getParameterByName(name) {
+		name = name.replace(/[\[]/, "\\\[").replace(/[\]]/, "\\\]");
+		var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"),
+			results = regex.exec(location.search);
+		return results == null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
+	}
+	
+	var appName = 'WebRTCDemo';
+	var organizerId = getParameterByName('id');
+	var isOrganizer = organizerId == '';
+	var selfInfo = {
+		type: 'userInfo',
+		id: '', 
+		name: '',
+		isOrganizer: false,
+		isCallPerformed: false
+	};
+	var users = []; // array of userInfo objects
+	var isUserAdded = function(easyrtcid) { return _.any(users, function(usr) { return usr.id == easyrtcid; }); }
+	var getUser = function(easyrtcid) { return _.find(users, function(usr) { return usr.id == easyrtcid; }); }
+	var addUser = function(user) { if (!isUserAdded(user.id)) users.push(user); }
+	var removeUser = function(easyrtcid) { _.each(users, function(usr, i) { if (usr.id == easyrtcid) users.splice(i, 1); }); }
+	var updateUser = function(user) {var usr = getUser(user.id); usr.name = user.name; usr.isOrganizer = user.isOrganizer; }
+	var updateUserList = function(idList) {
+		var currentIds = _.map(users, function(usr) { return usr.id; });
+		var newIds = _.map(idList, function(usr) { return usr.easyrtcid; });
+		var toRemove = _.without(currentIds, newIds);
+		var toAdd = _.without(newIds, currentIds);
+		_.each(toAdd, function(easyrtcid) { users.push({type: 'userInfo', id: easyrtcid, isCallPerformed: false}); });
+		_.each(toRemove, function(easyrtcid) { removeUser(easyrtcid); });
+	}
+	var getUserName = function (easyrtcid) {
+		var usr = getUser(easyrtcid);
+		return usr ? usr.name : easyrtcid;
+	}
+
+
+	function connect() {
+		console.log("Initializing");
+		var name = document.getElementById("peerName").value;
+		selfInfo.name = name;
+		selfInfo.isOrganizer = isOrganizer;
+		//var shareVideo = document.getElementById("shareVideo").checked;
+		//var shareAudio = document.getElementById("shareAudio").checked;
+		easyRTC.setLoggedInListener(peerConnectionListener);
+		easyRTC.setDataListener(dataListener);
+		easyRTC.connect(appName, loginSuccess, loginFailure);
+	}
+	function disconnect() {
+		console.log('Disconnecting from server');
+		easyRTC.disconnect();
+		if (isOrganizer)
+			_.each(users, function(usr) { easyRTC.sendDataWS(usr.id, {id: selfInfo.id, type: 'meetingEnd'}); });
+		$('#btnConnect').show();
+		$('#btnDisconnect').hide();
+		$('#peerName').removeAttr('disabled');
+		$('#chatBox').hide();
+		$('#peerBox').hide();
+		$('#share').hide();
+		users = [];
+	}
+
+
+	function peerConnectionListener (list) { /* called when peer is logged in */
+		$('#peerList li').remove();
+		updateUserList(list);
+		if (_.any(list)) {
+			_.each(list, function(i) {
+				console.log('Sending userInfo to peer ' + i.easyrtcid + ': ' + JSON.stringify(selfInfo));
+				easyRTC.sendDataWS(i.easyrtcid, selfInfo);
+			});
+		}
+	}
+	function dataListener(easyrtcid, data) { /* called when data received from peer */
+		console.log('Received message of type "' + data.type + '" from id ' + easyrtcid + ': ' + JSON.stringify(data));
+		if (data.type == 'userInfo') {
+			addPeerToList(data);
+			updateUser(data);
+			var usr = getUser(data.id);
+			if (isOrganizer && !data.isOrganizer && usr.isCallPerformed == false) {
+				console.log('Sending organizer check request to ' + getUserName(easyrtcid));
+				easyRTC.sendDataWS(data.id, {id: selfInfo.id, type: 'checkOrganizer' });
+			}
+		}
+		if (data.type == 'message') {
+			postMessage(data.id, data.message);
+		}
+		if (data.type == 'callRequest') {
+			_.each(data.peers, function(usr) { performCall(usr.id); } );
+		}
+		if (data.type == 'checkOrganizer') {
+			var isValid = data.id == organizerId
+			console.log('Sending "' + isValid + '" organizer check result to ' + getUserName(easyrtcid));
+			easyRTC.sendDataWS(easyrtcid, {id: selfInfo.id, type: 'checkOrganizerAnswer', isValid: isValid });
+			if (isValid)
+				enableControls();
+			else {
+				disconnect();
+				easyRTC.showError("INVALID-ORGANIZER", "Can't connect to this conference. The orgnizer doesn't exist or left the meeting.");
+			}
+		}
+		if (data.type == 'checkOrganizerAnswer') {
+			var usr = getUser(data.id);
+			if (data.isValid && usr.isCallPerformed == false) {
+				performCall(data.id);
+				var peerList = _.filter(users, function(usr) { return usr.isOrganizer == false && usr.id != data.id; });
+				if (_.any(peerList))
+					easyRTC.sendDataWS(data.id, {id: selfInfo.id, type: 'callRequest', peers: peerList });
+				usr.isCallPerformed = true;
+			}
+		}
+		if (data.type == 'meetingEnd') {
+			if (data.id == organizerId) disconnect();
+		}
+	}
+	
+	function performCall(otherEasyrtcid) {
+		var successCB = function(easyrtcid, mediaType) {
+			console.log('Got mediatype ' + mediaType + ' from ' + getUserName(easyrtcid));
+		};
+		var failureCB = function(msg) {
+			console.log('Call to ' + getUserName(otherEasyrtcid)) + 'failed: ' + msg;
+		};
+		var acceptedCB = function(accepted, easyrtcid) {
+			var name = getUserName(easyrtcid);
+			if (accepted) {
+				console.log('Call accepted by ' + name);
+			}
+			if(!accepted) {
+				console.log('Call rejected by ' + name);
+				easyRTC.showError("CALL-REJECTED", "Sorry, your call to " + name + " was rejected");
+			}
+		}
+		console.log('Performing call to ' + getUserName(otherEasyrtcid));
+		easyRTC.call(otherEasyrtcid, successCB, failureCB, acceptedCB);
+	}
+	function performHangup(otherEasyrtcid) {
+		console.log('Performing hangup with ' + getUserName(otherEasyrtcid));
+		easyRTC.hangup(otherEasyrtcid);
+	}
+	function loginSuccess(easyrtcid) {
+		console.log('Successfully logged in with id ' + easyrtcid);
+		selfInfo.id = easyrtcid;
+		if (isOrganizer) {
+			setShareLink(easyrtcid);
+			enableControls();
+		}
+	}
+	function loginFailure(message) {
+		console.log('Failed to log in');
+		easyRTC.showError("LOGIN-FAILURE", message);
+	}
+
+	function enableControls() {
+		$('#btnConnect').hide();
+		$('#btnDisconnect').show();
+		$('#peerName').attr("disabled", "disabled");
+		$('#peerBox').show();
+		$('#chatBox').show();
+	}
+	function addPeerToList(user) {
+		//var btn = $('<button class="btn-call">Call</button>');
+		//$(btn).on('click', setCallButton(user.id, true));
+		var li = $('<li>' + user.name + '</li>');
+		li.attr('id', user.id);
+		//li.append(btn);
+		$('#peerList').append(li);
+	}
+	function removePeerFromList(easyrtcid) {
+		$('li#[id="' + easyrtcid + '"]').remove();
+	}
+	function setShareLink(easyrtcid) {
+		$('#share').show();
+		var lnk = $('#shareLink');
+		var href = window.location.href + '?id=' + easyrtcid;
+		lnk.attr('href', href);
+		lnk.text(href);
+	}
+	/*var setCallButton = function(easyrtcid, isPerformCall) {
+		return isPerformCall
+			? function() { performCall(easyrtcid); }
+			: function() { performHangup(easyrtcid); }
+	}
+	function changeCallButtonText(easyrtcid, connected) {
+		var text = connected ? 'Hangup' : 'Call';
+		var btn = $('li[id="' + easyrtcid + '"] button');
+		btn.off('click');
+		btn.on('click', setCallButton(easyrtcid, !connected));
+		btn.text(text);
+	}*/
+	function addVideoObject(easyrtcid, stream) {
+		var box = $('<div class="videoBox" id="' + easyrtcid + '"></div>');
+		var video = $('<video autoplay="autoplay" class="callerVideo easyRTCMirror"></video>');
+		box.append(video);
+		$('div.videos .others').append(box);
+		easyRTC.setVideoObjectSrc(video[0], stream);
+	}
+	function removeVideoObject(easyrtcid) {
+		$('div.videoBox[id="' + easyrtcid + '"]').remove();
+	}
+	
+	easyRTC.setAcceptChecker(function(easyrtcid, acceptor) { /* Called when request to accept media stream received from another peer */
+		isCallReceived = true;
+		console.log('Got stream accept request from ' + getUserName(easyrtcid));
+		acceptor(true); // Sets calls so they are automatically accepted
+	});	
+	easyRTC.setStreamAcceptor(function(easyrtcid, stream) { /* Called when you accept peer's stream */
+		console.log('Accepted stream from ' + getUserName(easyrtcid));
+		addVideoObject(easyrtcid, stream);
+		//changeCallButtonText(easyrtcid, true);
+	});
+	easyRTC.setCallCancelled(function(easyrtcid){
+		removeVideoObject(easyrtcid);
+		console.log('Cancelled stream from ' + getUserName(easyrtcid));
+	});
+	easyRTC.setOnStreamClosed(function (easyrtcid) {
+		removeVideoObject(easyrtcid);
+		console.log('Closed stream to ' + getUserName(easyrtcid));
+		//changeCallButtonText(easyrtcid, false);
+	});
+	
+	var sendMessage = function() {
+		var msgInput = document.getElementById('message');
+		var msg = msgInput.value;
+		postMessage(selfInfo.id, msg);
+		msgInput.value = '';
+		console.log('Sending message to peers');
+		_.each(users, function(usr) {
+			easyRTC.sendData(usr.id, {id: selfInfo.id, type: 'message', message: msg});
+		});
+	}
+	var postMessage = function(id, message) {
+		var name = (id == selfInfo.id) ? 'You' : getUserName(id);
+		var message = $('<div class="message"><span class="peerName">' + name + ':</span>' + message + '</div>');
+		$('div#chat').prepend(message);
+	}
+</script>
+</html>

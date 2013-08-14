@@ -1,0 +1,66 @@
+p {
+	margin:10px 0;
+}
+a {
+	text-decoration: none;
+}
+a:hover {
+	text-decoration: underline;
+}
+.clear {
+	clear: both;
+}
+.centered {
+	margin-left:auto;
+	margin-right: auto;
+}
+.videos {
+	float: left;
+	/*border-left: solid 1px black;*/
+	margin-left: 20px;
+	padding-left: 20px;
+}
+.videoBox {
+	/*border: solid 1px black;*/
+	width: 200px;
+	margin: 5px;
+}
+.videoBox video {
+	width: 200px;
+}
+#peerBox {
+	width: 160px;
+	float: left;
+	border-right: solid 1px black;
+	padding-right: 20px;
+	margin-right: 20px;
+	min-height: 300px;
+}
+.btn-call {
+	margin-left: 7px;
+}
+#chatBox {
+	padding-right: 20px;
+	min-height: 300px;
+}
+#chatBox .controls {
+	margin-bottom: 15px;
+}
+#chatBox .controls input[type=text] {
+	width: 280px;
+	margin-left: 5px;
+	padding: 3px;
+}
+#chatBox .controls button {
+	padding: 3px 5px;
+}
+#chat {
+	margin-top: 15px;
+}
+#chat .message {
+	margin: 3px 0;
+}
+#chat .message span.peerName {
+	font-weight: bold;
+	padding-right: 5px;
+}
