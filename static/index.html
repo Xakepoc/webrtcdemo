@@ -5,7 +5,9 @@
     <script src="/socket.io/socket.io.js"></script>
     <script type="text/javascript" src="/js/easyrtc.js"></script>
     <script type="text/javascript" src="/js/underscore.js"></script>
-    <script type="text/javascript" src="/js/zepto.js"></script>
+    <script type="text/javascript" src="/js/jquery-2.0.3.min.js"></script>
+    
+    <script type="text/javascript" src="/js/jquery.event.drag-2.2.js"></script>
     <link rel="stylesheet" href="/css/custom.css"></script>
 </head>
 <body onload="initMedia()">
@@ -37,16 +39,26 @@
 					<ul id="peerList">
 						<li>Not connected</li>
 					</ul>
-				</div>
-				<div id="chatBox" style="display:none">
-					<p class="controls">
-						Type your message:
-						<input id="message" type="text" width="200px;" /> <button id="btnPostMessage" onclick="sendMessage()">Send</button>
-					</p>
-					<hr/>
-					<div id="chat">
+					<hr />
+					<div id="chatBox" style="display:none">
+						<p class="controls">
+							Type your message:
+							<input id="message" type="text" width="100px;" /> <button id="btnPostMessage" onclick="sendMessage()">Send</button>
+						</p>
+						<div id="chat">
+						</div>
 					</div>
 				</div>
+				<div id="board" style="display:none">
+					<div class="controls">
+						<div class="ctl active" rel="line"><img src="/images/pencil-32.png" width="32px"/></div>
+						<div class="ctl" rel="eraser"><img src="/images/eraser-32.png" width="32px"/></div>
+						<div class="ctl" rel="clear"><img src="/images/delete-32.png" width="32px"/></div>
+						<div class="clear"></div>
+					</div>
+					<canvas></canvas>
+				</div>
+				<div style="clear:left;">&nbsp;</div>
 			</div>
 		</div>
 		<div class="videos">
@@ -143,6 +155,7 @@
 		$('#chatBox').hide();
 		$('#peerBox').hide();
 		$('#share').hide();
+		$('#board').hide();
 		users = [];
 	}
 
@@ -170,6 +183,9 @@
 		}
 		if (data.type == 'message') {
 			postMessage(data.id, data.message);
+		}
+		if (data.type == 'draw') {
+			wb.draw(data.message);
 		}
 		if (data.type == 'callRequest') {
 			_.each(data.peers, function(usr) { performCall(usr.id); } );
@@ -243,6 +259,7 @@
 		$('#peerName').attr("disabled", "disabled");
 		$('#peerBox').show();
 		$('#chatBox').show();
+		$('#board').show();
 	}
 	function addPeerToList(user) {
 		//var btn = $('<button class="btn-call">Call</button>');
@@ -305,6 +322,8 @@
 		//changeCallButtonText(easyrtcid, false);
 	});
 	
+	/* Chat */
+	
 	var sendMessage = function() {
 		var msgInput = document.getElementById('message');
 		var msg = msgInput.value;
@@ -320,5 +339,87 @@
 		var message = $('<div class="message"><span class="peerName">' + name + ':</span>' + message + '</div>');
 		$('div#chat').prepend(message);
 	}
+	
+	/* Whiteboard */
+	
+	var wb = {};
+
+	wb.init = function() {
+		wb.defaultColor = '#ffffff';
+		wb.defaultLineWidth = 3;
+		wb.defaultWidth = 650;
+		wb.defaultHeight = 360;
+	
+		wb.canvas = $('canvas')[0];
+		wb.canvas.width = wb.defaultWidth;
+		wb.canvas.height = wb.defaultHeight;
+		wb.ctx = wb.canvas.getContext("2d");
+		wb.ctx.fillStyle = "solid";
+		wb.ctx.strokeStyle = wb.defaultColor;
+		wb.ctx.lineWidth = wb.defaultLineWidth;
+		wb.ctx.lineCap = "round";
+
+		wb.draw = function(msg) {
+			if (msg.type === 'dragstart') {
+				wb.ctx.beginPath();
+				return wb.ctx.moveTo(msg.x, msg.y);
+			} else if (msg.type === 'drag') {
+				wb.ctx.lineTo(msg.x, msg.y);
+				return wb.ctx.stroke();
+			} else if (msg.type == 'dragend') {
+				return wb.ctx.closePath();
+			}
+			else if (msg.type == 'changeTool') {
+				if (msg.tool == 'clear') {
+					wb.ctx.clearRect(0, 0, wb.defaultWidth, wb.defaultHeight);
+				}
+				else if (msg.tool == 'eraser') {
+					wb.ctx.strokeStyle = '#708090';
+					wb.ctx.lineWidth = 30;
+				}
+				else {
+					wb.ctx.strokeStyle = wb.defaultColor;
+					wb.ctx.lineWidth = wb.defaultLineWidth;
+				}
+			}
+		};
+
+		wb.sendDraw = function(msg) {
+			_.each(users, function(usr) {
+				easyRTC.sendData(usr.id, {id: selfInfo.id, type: 'draw', message: msg});
+			});
+		}
+	};
+
+	$('canvas').on('drag dragstart dragend', function(e) {
+		var offset, type, x, y;
+		type = e.handleObj.type;
+		offset = $(this).offset();
+		e.offsetX = e.pageX - offset.left;
+		e.offsetY = e.pageY - offset.top;
+		x = e.offsetX;
+		y = e.offsetY;
+		var msg = { x:x, y:y, type:type };
+		wb.draw(msg);
+		wb.sendDraw(msg);
+	});
+	
+	$('#board .ctl').on('click', function() {
+		type = 'changeTool';
+		tool = $(this).attr('rel');
+		if (tool == 'clear') {
+			if (!confirm('Are you sure you want to clear the board?'))
+				return;
+		}
+		else {
+			$(this).siblings().removeClass('active');
+			$(this).addClass('active');
+		}
+		var msg = { type: type, tool: tool};
+		wb.draw(msg);
+		wb.sendDraw(msg);
+	});
+
+	wb.init();
 </script>
 </html>

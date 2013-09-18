@@ -29,7 +29,7 @@ a:hover {
 	width: 200px;
 }
 #peerBox {
-	width: 160px;
+	width: 200px;
 	float: left;
 	border-right: solid 1px black;
 	padding-right: 20px;
@@ -40,15 +40,14 @@ a:hover {
 	margin-left: 7px;
 }
 #chatBox {
-	padding-right: 20px;
 	min-height: 300px;
 }
 #chatBox .controls {
 	margin-bottom: 15px;
 }
 #chatBox .controls input[type=text] {
-	width: 280px;
-	margin-left: 5px;
+	width: 130px;
+	margin-top: 10px;
 	padding: 3px;
 }
 #chatBox .controls button {
@@ -56,6 +55,7 @@ a:hover {
 }
 #chat {
 	margin-top: 15px;
+	overflow-x: auto;
 }
 #chat .message {
 	margin: 3px 0;
@@ -63,4 +63,23 @@ a:hover {
 #chat .message span.peerName {
 	font-weight: bold;
 	padding-right: 5px;
+}
+#board {
+	float: left;
+}
+#board canvas {
+	background-color: #708090;
+	border: solid 3px #708090;
+}
+#board .controls {
+	margin-bottom: 10px;
+}
+#board .controls .ctl {
+	float: left;
+	cursor: pointer;
+	padding: 5px 10px;
+}
+
+#board .controls .ctl.active {
+	border: solid 1px #999;
 }
