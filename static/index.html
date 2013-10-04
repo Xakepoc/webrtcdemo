@@ -74,17 +74,20 @@
 <script type="text/javascript">
 	easyRTC.debugPrinter = function(message) {
 		//console.log(message);
-	}
+	};
+	var log = function(msg) {
+		console.log(msg);
+	};
 	
 	function initMedia() {
 		easyRTC.initMediaSource(
 			function() {
-				console.log('Media source initialized');
+				log('Media source initialized');
 				setUpVideoObject();
-				console.log('Successfully got local media stream');
+				log('Successfully got local media stream');
 			}, 
 			function() {
-				console.log('Failed to initialize media source');
+				log('Failed to initialize media source');
 			});
 	}
 	function setUpVideoObject() {
@@ -111,6 +114,7 @@
 		id: '', 
 		name: '',
 		isOrganizer: false,
+		roomId: '', // will use organizer ID as room ID
 		isCallPerformed: false
 	};
 	var users = []; // array of userInfo objects
@@ -131,10 +135,11 @@
 		var usr = getUser(easyrtcid);
 		return usr ? usr.name : easyrtcid;
 	}
+	var isAnotherRoom = function(roomId) { return selfInfo.roomId != roomId; }
 
 
 	function connect() {
-		console.log("Initializing");
+		log("Initializing");
 		var name = document.getElementById("peerName").value;
 		selfInfo.name = name;
 		selfInfo.isOrganizer = isOrganizer;
@@ -145,10 +150,10 @@
 		easyRTC.connect(appName, loginSuccess, loginFailure);
 	}
 	function disconnect() {
-		console.log('Disconnecting from server');
+		log('Disconnecting from server');
 		easyRTC.disconnect();
 		if (isOrganizer)
-			_.each(users, function(usr) { easyRTC.sendDataWS(usr.id, {id: selfInfo.id, type: 'meetingEnd'}); });
+			_.each(users, function(usr) { easyRTC.sendDataWS(usr.id, {id: selfInfo.id, roomId: selfInfo.roomId, type: 'meetingEnd'}); });
 		$('#btnConnect').show();
 		$('#btnDisconnect').hide();
 		$('#peerName').removeAttr('disabled');
@@ -165,20 +170,22 @@
 		updateUserList(list);
 		if (_.any(list)) {
 			_.each(list, function(i) {
-				console.log('Sending userInfo to peer ' + i.easyrtcid + ': ' + JSON.stringify(selfInfo));
+				log('Sending userInfo to peer ' + i.easyrtcid + ': ' + JSON.stringify(selfInfo));
 				easyRTC.sendDataWS(i.easyrtcid, selfInfo);
 			});
 		}
 	}
 	function dataListener(easyrtcid, data) { /* called when data received from peer */
-		console.log('Received message of type "' + data.type + '" from id ' + easyrtcid + ': ' + JSON.stringify(data));
+		if (isAnotherRoom(data.roomId)) // do not add users from other rooms
+			return;
+		log('Received message of type "' + data.type + '" from id ' + easyrtcid + ': ' + JSON.stringify(data));
 		if (data.type == 'userInfo') {
 			addPeerToList(data);
 			updateUser(data);
 			var usr = getUser(data.id);
 			if (isOrganizer && !data.isOrganizer && usr.isCallPerformed == false) {
-				console.log('Sending organizer check request to ' + getUserName(easyrtcid));
-				easyRTC.sendDataWS(data.id, {id: selfInfo.id, type: 'checkOrganizer' });
+				log('Sending organizer check request to ' + getUserName(easyrtcid));
+				easyRTC.sendDataWS(data.id, {id: selfInfo.id, roomId: selfInfo.roomId, type: 'checkOrganizer' });
 			}
 		}
 		if (data.type == 'message') {
@@ -192,8 +199,8 @@
 		}
 		if (data.type == 'checkOrganizer') {
 			var isValid = data.id == organizerId
-			console.log('Sending "' + isValid + '" organizer check result to ' + getUserName(easyrtcid));
-			easyRTC.sendDataWS(easyrtcid, {id: selfInfo.id, type: 'checkOrganizerAnswer', isValid: isValid });
+			log('Sending "' + isValid + '" organizer check result to ' + getUserName(easyrtcid));
+			easyRTC.sendDataWS(easyrtcid, {id: selfInfo.id, roomId: selfInfo.roomId, type: 'checkOrganizerAnswer', isValid: isValid });
 			if (isValid)
 				enableControls();
 			else {
@@ -207,7 +214,7 @@
 				performCall(data.id);
 				var peerList = _.filter(users, function(usr) { return usr.isOrganizer == false && usr.id != data.id; });
 				if (_.any(peerList))
-					easyRTC.sendDataWS(data.id, {id: selfInfo.id, type: 'callRequest', peers: peerList });
+					easyRTC.sendDataWS(data.id, {id: selfInfo.id, roomId: selfInfo.roomId, type: 'callRequest', peers: peerList });
 				usr.isCallPerformed = true;
 			}
 		}
@@ -218,38 +225,39 @@
 	
 	function performCall(otherEasyrtcid) {
 		var successCB = function(easyrtcid, mediaType) {
-			console.log('Got mediatype ' + mediaType + ' from ' + getUserName(easyrtcid));
+			log('Got mediatype ' + mediaType + ' from ' + getUserName(easyrtcid));
 		};
 		var failureCB = function(msg) {
-			console.log('Call to ' + getUserName(otherEasyrtcid)) + 'failed: ' + msg;
+			log('Call to ' + getUserName(otherEasyrtcid)) + 'failed: ' + msg;
 		};
 		var acceptedCB = function(accepted, easyrtcid) {
 			var name = getUserName(easyrtcid);
 			if (accepted) {
-				console.log('Call accepted by ' + name);
+				log('Call accepted by ' + name);
 			}
 			if(!accepted) {
-				console.log('Call rejected by ' + name);
+				log('Call rejected by ' + name);
 				easyRTC.showError("CALL-REJECTED", "Sorry, your call to " + name + " was rejected");
 			}
 		}
-		console.log('Performing call to ' + getUserName(otherEasyrtcid));
+		log('Performing call to ' + getUserName(otherEasyrtcid));
 		easyRTC.call(otherEasyrtcid, successCB, failureCB, acceptedCB);
 	}
 	function performHangup(otherEasyrtcid) {
-		console.log('Performing hangup with ' + getUserName(otherEasyrtcid));
+		log('Performing hangup with ' + getUserName(otherEasyrtcid));
 		easyRTC.hangup(otherEasyrtcid);
 	}
 	function loginSuccess(easyrtcid) {
-		console.log('Successfully logged in with id ' + easyrtcid);
+		log('Successfully logged in with id ' + easyrtcid);
 		selfInfo.id = easyrtcid;
+		selfInfo.roomId = isOrganizer ? easyrtcid : organizerId; 
 		if (isOrganizer) {
 			setShareLink(easyrtcid);
 			enableControls();
 		}
 	}
 	function loginFailure(message) {
-		console.log('Failed to log in');
+		log('Failed to log in');
 		easyRTC.showError("LOGIN-FAILURE", message);
 	}
 
@@ -304,21 +312,21 @@
 	
 	easyRTC.setAcceptChecker(function(easyrtcid, acceptor) { /* Called when request to accept media stream received from another peer */
 		isCallReceived = true;
-		console.log('Got stream accept request from ' + getUserName(easyrtcid));
+		log('Got stream accept request from ' + getUserName(easyrtcid));
 		acceptor(true); // Sets calls so they are automatically accepted
 	});	
 	easyRTC.setStreamAcceptor(function(easyrtcid, stream) { /* Called when you accept peer's stream */
-		console.log('Accepted stream from ' + getUserName(easyrtcid));
+		log('Accepted stream from ' + getUserName(easyrtcid));
 		addVideoObject(easyrtcid, stream);
 		//changeCallButtonText(easyrtcid, true);
 	});
 	easyRTC.setCallCancelled(function(easyrtcid){
 		removeVideoObject(easyrtcid);
-		console.log('Cancelled stream from ' + getUserName(easyrtcid));
+		log('Cancelled stream from ' + getUserName(easyrtcid));
 	});
 	easyRTC.setOnStreamClosed(function (easyrtcid) {
 		removeVideoObject(easyrtcid);
-		console.log('Closed stream to ' + getUserName(easyrtcid));
+		log('Closed stream to ' + getUserName(easyrtcid));
 		//changeCallButtonText(easyrtcid, false);
 	});
 	
@@ -329,9 +337,9 @@
 		var msg = msgInput.value;
 		postMessage(selfInfo.id, msg);
 		msgInput.value = '';
-		console.log('Sending message to peers');
+		log('Sending message to peers');
 		_.each(users, function(usr) {
-			easyRTC.sendData(usr.id, {id: selfInfo.id, type: 'message', message: msg});
+			easyRTC.sendData(usr.id, {id: selfInfo.id, roomId: selfInfo.roomId, type: 'message', message: msg});
 		});
 	}
 	var postMessage = function(id, message) {
@@ -386,7 +394,7 @@
 
 		wb.sendDraw = function(msg) {
 			_.each(users, function(usr) {
-				easyRTC.sendData(usr.id, {id: selfInfo.id, type: 'draw', message: msg});
+				easyRTC.sendData(usr.id, {id: selfInfo.id, roomId: selfInfo.roomId, type: 'draw', message: msg});
 			});
 		}
 	};
